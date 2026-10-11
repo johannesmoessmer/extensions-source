@@ -15,6 +15,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Request
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class OnePieceTube : KeiSource() {
@@ -22,6 +25,7 @@ abstract class OnePieceTube : KeiSource() {
     private fun onePiece() = SManga.create().apply {
         url = "/manga/kapitel-mangaliste"
         title = "One Piece"
+        thumbnail_url = "https://www.carlsen.de/sites/default/files/styles/sc_110_160/public/produkt/one-piece-2c-band-1.jpg?itok=26tLROc0"
         author = "Eiichiro Oda"
         status = SManga.ONGOING
     }
@@ -89,21 +93,30 @@ abstract class OnePieceTube : KeiSource() {
     }
 
     override suspend fun getImageUrl(page: Page): String {
-        val imageJson = runWebView<String> {
+        val image = runWebView<String>(timeout = 30.seconds) {
             javaScriptEnabled = true
             domStorageEnabled = true
             blockImages = false
-            onPageFinished {
-                evaluateJs(IMAGE_URL_JS) { value -> resolve(value) }
+            // OnePiece-Tube inserts the reader image after navigation has finished.
+            poll(500.milliseconds) {
+                evaluateJs(IMAGE_URL_JS) { value ->
+                    val url = runCatching {
+                        Json.parseToJsonElement(value).jsonPrimitive.content
+                    }.getOrNull()
+                    if (url?.startsWith("https://") == true || url?.startsWith("http://") == true) {
+                        resolve(url)
+                    }
+                }
             }
             loadUrl(page.url)
         }
-        val image = runCatching { Json.parseToJsonElement(imageJson).jsonPrimitive.content }.getOrDefault("")
-        require(image.startsWith("https://") || image.startsWith("http://")) {
-            "Kein Manga-Bild gefunden: ${page.url}"
-        }
         return image
     }
+
+    override fun imageRequest(page: Page): Request = Request.Builder()
+        .url(page.imageUrl!!)
+        .headers(headers.newBuilder().set("Referer", page.url).build())
+        .build()
 
     companion object {
         private val PAGE_COUNT_JS = """
@@ -121,17 +134,22 @@ abstract class OnePieceTube : KeiSource() {
         private val IMAGE_URL_JS = """
             (() => {
               const docs = [document];
-              for (const f of document.querySelectorAll('iframe')) {
-                try { if (f.contentDocument) docs.push(f.contentDocument); } catch(e) {}
+              for (const frame of document.querySelectorAll('iframe')) {
+                try { if (frame.contentDocument) docs.push(frame.contentDocument); } catch (e) {}
               }
-              const imgs = docs.flatMap(d => [...d.images])
-                .filter(img => img.currentSrc || img.src || img.dataset.src)
-                .sort((a,b) =>
-                  (b.naturalWidth || b.width || 0) * (b.naturalHeight || b.height || 0) -
-                  (a.naturalWidth || a.width || 0) * (a.naturalHeight || a.height || 0)
-                );
-              const img = imgs.find(x => x.naturalWidth >= 400 && x.naturalHeight >= 400);
-              return img ? (img.currentSrc || img.src || img.dataset.src) : '';
+              const images = docs.flatMap(doc => [...doc.images]);
+              const preferred = images.filter(img => {
+                const url = img.currentSrc || img.src || img.dataset.src || '';
+                const width = img.naturalWidth || img.width || img.clientWidth || 0;
+                const height = img.naturalHeight || img.height || img.clientHeight || 0;
+                return /^https?:/.test(url) && width >= 300 && height >= 300 &&
+                  !/logo|icon|avatar|favicon|banner|adserver/i.test(url);
+              });
+              const chosen = preferred.sort((a, b) =>
+                (b.naturalWidth || b.width || 0) * (b.naturalHeight || b.height || 0) -
+                (a.naturalWidth || a.width || 0) * (a.naturalHeight || a.height || 0)
+              )[0];
+              return chosen ? (chosen.currentSrc || chosen.src || chosen.dataset.src) : '';
             })()
         """.trimIndent()
     }
