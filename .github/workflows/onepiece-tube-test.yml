@@ -1,0 +1,46 @@
+name: OnePiece-Tube test APK
+
+on:
+  push:
+    branches: [onepiece-tube-prototype]
+    paths:
+      - 'src/de/onepiecetube/**'
+      - '.github/workflows/onepiece-tube-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Load only OnePiece-Tube extension
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("settings.gradle.kts")
+          text = path.read_text()
+          text = text.replace("loadAllIndividualExtensions()", 'loadIndividualExtension("de", "onepiecetube")', 1)
+          path.write_text(text)
+          PY
+      - name: Build test APK
+        run: ./gradlew :src:de:onepiecetube:assembleDebug --stacktrace
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onepiece-tube-debug-apk
+          path: src/de/onepiecetube/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14
