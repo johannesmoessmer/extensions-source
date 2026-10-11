@@ -26,19 +26,16 @@ abstract class OnePieceTube : KeiSource() {
         status = SManga.ONGOING
     }
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        MangasPage(if (page == 1) listOf(onePiece()) else emptyList(), false)
+    override suspend fun getPopularManga(page: Int): MangasPage = MangasPage(if (page == 1) listOf(onePiece()) else emptyList(), false)
 
     override suspend fun getLatestUpdates(page: Int): MangasPage = getPopularManga(page)
 
-    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage =
-        MangasPage(
-            if (page == 1 && "one piece".contains(query.trim(), ignoreCase = true)) listOf(onePiece()) else emptyList(),
-            false,
-        )
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage = MangasPage(
+        if (page == 1 && "one piece".contains(query.trim(), ignoreCase = true)) listOf(onePiece()) else emptyList(),
+        false,
+    )
 
-    override suspend fun getMangaByUrl(url: HttpUrl): SManga? =
-        if (url.host == baseUrl.toHttpUrl().host && url.encodedPath.startsWith("/manga/")) onePiece() else null
+    override suspend fun getMangaByUrl(url: HttpUrl): SManga? = if (url.host == baseUrl.toHttpUrl().host && url.encodedPath.startsWith("/manga/")) onePiece() else null
 
     override suspend fun fetchMangaUpdate(
         manga: SManga,
